@@ -7,15 +7,17 @@ from koi_net.config.full_node import (
     NodeProvides
 )
 
+from .rid_types import AskCoreResponse, AskRankedResponses
 
-class MyNodeConfig(FullNodeConfig):
+
+class AskResponseRankerNodeConfig(FullNodeConfig):
     koi_net: KoiNetConfig = KoiNetConfig(
-        node_name="my-node-name",   # human readable name for your node
+        node_name="ask-response-ranker",
         node_profile=NodeProfile(
             provides=NodeProvides(
-                event=[],   # RID types of provided events
-                state=[]    # RID types of provided state
+                event=[AskRankedResponses],
+                state=[AskRankedResponses]
             )
         ),
-        rid_types_of_interest=[KoiNetNode] # RID types this node should subscribe to
+        rid_types_of_interest=[KoiNetNode, AskCoreResponse]
     )
