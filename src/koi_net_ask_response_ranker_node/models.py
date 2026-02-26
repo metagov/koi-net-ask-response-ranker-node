@@ -7,11 +7,13 @@ class AskCoreThreadModel(BaseModel):
     asker: SlackUser
     prompt: str
     original_msg: SlackMessage
+    permalink: str
 
 class AskCoreResponseModel(BaseModel):
     author: SlackUser
     content: str
     original_msg: SlackMessage
+    permalink: str
     thread: AskCoreThread
     
     reactions: dict[str, list[SlackUser]] = Field(default_factory=dict)
