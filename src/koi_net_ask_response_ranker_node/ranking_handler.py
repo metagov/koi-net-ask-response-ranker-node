@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-import structlog
 from rid_lib.ext import Bundle
 from koi_net.components.interfaces import KnowledgeHandler, HandlerType
 from koi_net.components import Cache, Effector, KobjQueue
@@ -9,8 +8,6 @@ from koi_net.protocol import KnowledgeObject
 from .config import AskResponseRankerNodeConfig
 from .models import AskCoreResponseModel, AskCoreThreadModel, RankedResponsesModel
 from .rid_types import AskCoreResponse, AskRankedResponses
-
-log = structlog.stdlib.get_logger()
 
 
 @dataclass
@@ -52,25 +49,23 @@ class RankingHandler(KnowledgeHandler):
                 ranked_responses.community_voted.ranking = valid_reactions
                 self.log.info("New community voted")
                 
-            elif valid_reactions < ranked_responses.community_voted.ranking:
-                if ranked_responses.community_voted.response == kobj.rid:
-                    ... # search for new highest ranking
-                
-            else:
-                ... # do nothing
+            # elif valid_reactions < ranked_responses.community_voted.ranking:
+            #     if ranked_responses.community_voted.response == kobj.rid:
+            #         ... # search for new highest ranking
             
         if medal in response.reactions:
             valid_reactions = 0
             user_group_bundle = self.effector.deref(
                 rid=self.config.response_ranking.staff_user_group, 
-                use_network=True)
+                use_network=True
+            )
             
             if user_group_bundle:
                 staff_user_group = user_group_bundle.contents
                 staff_users = staff_user_group.get("users", [])
                 
+                # only count reacters which belong to the staff user group
                 for reacter in response.reactions[medal]:
-                    self.log.info(f"staff pick reacter: {reacter}")
                     if reacter.user_id in staff_users:
                         valid_reactions += 1
                         

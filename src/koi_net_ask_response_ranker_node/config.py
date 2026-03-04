@@ -22,6 +22,6 @@ class AskResponseRankerNodeConfig(FullNodeConfig):
                 state=[AskRankedResponses]
             )
         ),
-        rid_types_of_interest=[KoiNetNode, AskCoreResponse]
+        rid_types_of_interest=[KoiNetNode, AskCoreResponse, SlackUserGroup]
     )
     response_ranking: CustomConfig = CustomConfig()
