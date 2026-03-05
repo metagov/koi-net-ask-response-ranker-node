@@ -7,7 +7,7 @@ from koi_net.config import (
     NodeProvides
 )
 
-from .rid_types import AskCoreResponse, AskRankedResponses
+from .rid_types import AskCoreResponse, AskCoreThread, AskRankedResponses
 
 
 class CustomConfig(BaseModel):
@@ -22,6 +22,6 @@ class AskResponseRankerNodeConfig(FullNodeConfig):
                 state=[AskRankedResponses]
             )
         ),
-        rid_types_of_interest=[KoiNetNode, AskCoreResponse, SlackUserGroup]
+        rid_types_of_interest=[KoiNetNode, AskCoreThread, AskCoreResponse, SlackUserGroup]
     )
     response_ranking: CustomConfig = CustomConfig()
