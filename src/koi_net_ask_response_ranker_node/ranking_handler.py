@@ -46,10 +46,10 @@ class RankingHandler(KnowledgeHandler):
             ranked_responses = RankedResponsesModel(thread=thread_rid)
         
         if response:
-            if THUMBS_UP in response.reactions:
-                valid_reactions = len(response.reactions[THUMBS_UP])
+            if any(reaction.startswith(THUMBS_UP) for reaction in response.reactions):
+                valid_reactions = sum(len(v) for k, v in response.reactions.items() if k.startswith(THUMBS_UP))
                 
-                self.log.info(f"{valid_reactions} votes for community pick: {response.reactions[THUMBS_UP]}")
+                self.log.info(f"{valid_reactions} votes for community pick")
                 
                 if valid_reactions > ranked_responses.community_voted.ranking:
                     ranked_responses.community_voted.response = kobj.rid
