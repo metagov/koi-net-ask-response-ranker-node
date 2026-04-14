@@ -3,7 +3,9 @@ from dataclasses import dataclass
 from rid_lib.ext import Bundle
 from koi_net.components.interfaces import KnowledgeHandler, HandlerType
 from koi_net.components import Cache, Effector, KobjQueue
-from koi_net.protocol import KnowledgeObject
+from koi_net.protocol import EventType, KnowledgeObject
+from rid_lib.types import SlackUser
+from slack_bolt import App
 
 from .config import AskResponseRankerNodeConfig
 from .models import AskCoreResponseModel, AskCoreThreadModel, RankedResponsesModel
@@ -20,80 +22,174 @@ class RankingHandler(KnowledgeHandler):
     effector: Effector
     config: AskResponseRankerNodeConfig
     kobj_queue: KobjQueue
+    slack_app: App
     
     handler_type = HandlerType.Network
-    rid_types = (AskCoreThread, AskCoreResponse)
+    rid_types = (AskCoreResponse,)
+    
+    def user_is_staff(self, user: SlackUser) -> bool:
+        user_group_bundle = self.effector.deref(
+            rid=self.config.response_ranking.staff_user_group, 
+            use_network=True
+        )
+        
+        if user_group_bundle:
+            staff_user_group = user_group_bundle.contents
+            staff_users = staff_user_group.get("users", [])
+            
+            return user.user_id in staff_users
+        return False
+        
+    def user_is_thread_author(self, user: SlackUser, response: AskCoreResponseModel):
+        thread_bundle = self.effector.deref(response.thread, use_network=True)
+        
+        if thread_bundle:
+            thread = thread_bundle.validate_contents(AskCoreThreadModel)
+            
+            return user == thread.asker
+        return False
+    
+    def send_vote_feedback(self, reaction_delta_set, response):
+        for emoji, user, added in reaction_delta_set:
+            if emoji.startswith(THUMBS_UP):
+                if added:
+                    msg = f"Your :{THUMBS_UP}: vote has been counted!"
+                else:
+                    msg = f"Removed :{THUMBS_UP}: vote"
+            elif emoji == SPORTS_MEDAL:
+                if self.user_is_staff(user):
+                    if added:
+                        msg = f"Your :{SPORTS_MEDAL}: vote has been counted!"
+                    else:
+                        msg = f"Removed :{SPORTS_MEDAL}: vote"
+                else:
+                    msg = f"Sorry, only staff members can vote :{SPORTS_MEDAL}:"
+            elif emoji == CHECK_MARK:
+                if self.user_is_thread_author(user, response):
+                    if added:
+                        msg = f"Your :{CHECK_MARK}: vote has been counted!"
+                    else:
+                        msg = f"Removed :{CHECK_MARK}: vote"
+                else:
+                    msg = f"Sorry, only the thread author can vote :{CHECK_MARK}:"
+            else:
+                continue
+                
+            self.slack_app.client.chat_postEphemeral(
+                channel=response.thread.channel_id,
+                thread_ts=response.thread.ts,
+                user=user.user_id,
+                text=msg
+            )
+            
+    def compute_rankings(self, thread: AskCoreThread, curr_response_bundle: Bundle):
+        rankings = {}
+        for rid in (*self.cache.list_rids(rid_types=(AskCoreResponse,)), curr_response_bundle.rid):
+            bundle = self.cache.read(rid)
+            if bundle:
+                response = bundle.validate_contents(AskCoreResponseModel)
+            elif rid == curr_response_bundle.rid:
+                response = curr_response_bundle.validate_contents(AskCoreResponseModel)
+            else:
+                continue
+
+            if response.thread != thread:
+                continue
+            
+            reaction_counts = {
+                THUMBS_UP: 0,
+                SPORTS_MEDAL: 0,
+                CHECK_MARK: 0
+            }
+            
+            for emoji, users in response.reactions.items():
+                if emoji.startswith(THUMBS_UP):
+                    reaction_counts[THUMBS_UP] += len(users)
+                elif emoji == SPORTS_MEDAL:
+                    for user in users:
+                        if self.user_is_staff(user):
+                            reaction_counts[SPORTS_MEDAL] += 1
+                elif emoji == CHECK_MARK:
+                    for user in users:
+                        if self.user_is_thread_author(user, response):
+                            reaction_counts[CHECK_MARK] += 1
+            rankings[rid] = reaction_counts
+        return rankings
     
     def handle(self, kobj: KnowledgeObject):
-        if type(kobj.rid) is AskCoreThread:
-            response = None
-            thread_rid = kobj.rid
-            
-        elif type(kobj.rid) is AskCoreResponse:
-            response = kobj.bundle.validate_contents(AskCoreResponseModel)
-            thread_rid = response.thread
+        response = kobj.bundle.validate_contents(AskCoreResponseModel)
         
         ranked_responses_rid = AskRankedResponses(
-            team_id=thread_rid.team_id,
-            channel_id=thread_rid.channel_id,
-            ts=thread_rid.ts
+            team_id=response.thread.team_id,
+            channel_id=response.thread.channel_id,
+            ts=response.thread.ts
         )
+        
+        if kobj.normalized_event_type == EventType.NEW:
+            added = {(emoji, user) for emoji, users in response.reactions.items() for user in users}
+            removed = {}
+            
+            if not added:
+                return
+            
+        elif kobj.normalized_event_type == EventType.UPDATE:
+            prev_response = kobj.prev_bundle.validate_contents(AskCoreResponseModel)
+
+            prev_pairs = {(emoji, user) for emoji, users in prev_response.reactions.items() for user in users}
+            curr_pairs = {(emoji, user) for emoji, users in response.reactions.items() for user in users}
+
+            added = curr_pairs - prev_pairs
+            removed = prev_pairs - curr_pairs
+
+            if not added and not removed:
+                return
+
+        else:
+            return
+        
+        # third value in tuple: True = added, False = removed
+        reaction_delta_set = {(*t, t in added) for t in added | removed}
+        self.send_vote_feedback(reaction_delta_set, response)
         
         bundle = self.cache.read(ranked_responses_rid)
         if bundle:
             ranked_responses = bundle.validate_contents(RankedResponsesModel)
         else:
-            ranked_responses = RankedResponsesModel(thread=thread_rid)
+            ranked_responses = RankedResponsesModel(thread=response.thread)
         
-        if response:
-            if any(reaction.startswith(THUMBS_UP) for reaction in response.reactions):
-                valid_reactions = sum(len(v) for k, v in response.reactions.items() if k.startswith(THUMBS_UP))
-                
-                self.log.info(f"{valid_reactions} votes for community pick")
-                
-                if valid_reactions > ranked_responses.community_voted.ranking:
-                    ranked_responses.community_voted.response = kobj.rid
-                    ranked_responses.community_voted.ranking = valid_reactions
-                    self.log.info("New community voted")
-                
-            if SPORTS_MEDAL in response.reactions:
-                valid_reactions = 0
-                user_group_bundle = self.effector.deref(
-                    rid=self.config.response_ranking.staff_user_group, 
-                    use_network=True
-                )
-                
-                if user_group_bundle:
-                    staff_user_group = user_group_bundle.contents
-                    staff_users = staff_user_group.get("users", [])
-                    
-                    # only count reacters which belong to the staff user group
-                    for reacter in response.reactions[SPORTS_MEDAL]:
-                        if reacter.user_id in staff_users:
-                            valid_reactions += 1
-                            
-                if valid_reactions > ranked_responses.staff_pick.ranking:
-                    self.log.info("New staff pick")
-                    ranked_responses.staff_pick.response = kobj.rid
-                    ranked_responses.staff_pick.ranking = valid_reactions
-                
-            if CHECK_MARK in response.reactions:
-                valid_reactions = 0
-                thread_bundle = self.effector.deref(thread_rid, use_network=True)
-                
-                if thread_bundle:
-                    thread = thread_bundle.validate_contents(AskCoreThreadModel)
-                    
-                    # only valid reactions are from the original thread asker
-                    for reacter in response.reactions[CHECK_MARK]:
-                        if reacter == thread.asker:
-                            valid_reactions += 1
-                
-                if valid_reactions > ranked_responses.accepted_answer.ranking:
-                    self.log.info("New accepted answer")
-                    ranked_responses.accepted_answer.response = kobj.rid
-                    ranked_responses.accepted_answer.ranking = valid_reactions
-            
+        
+        response_rankings = self.compute_rankings(response.thread, kobj.bundle)
+        
+        def compute_max(rankings, emoji):
+            max_response = max(rankings.items(), key=lambda t: t[1][emoji])
+            return max_response[0], max_response[1][emoji]
+
+        community_voted = compute_max(response_rankings, THUMBS_UP)
+        staff_pick = compute_max(response_rankings, SPORTS_MEDAL)
+        accepted_answer = compute_max(response_rankings, CHECK_MARK)
+        
+        self.log.info(f"COMMUNITY_VOTED: {community_voted}")
+        self.log.info(f"STAFF_PICK: {staff_pick}")
+        self.log.info(f"ACCEPTED_ANSWER: {accepted_answer}")
+
+        if community_voted[1] > 0:
+            ranked_responses.community_voted.response, ranked_responses.community_voted.ranking = community_voted
+        else:
+            ranked_responses.community_voted.response = None
+            ranked_responses.community_voted.ranking = 0
+        
+        if staff_pick[1] > 0:
+            ranked_responses.staff_pick.response, ranked_responses.staff_pick.ranking = staff_pick
+        else:
+            ranked_responses.staff_pick.response = None
+            ranked_responses.staff_pick.ranking = 0
+        
+        if accepted_answer[1] > 0:
+            ranked_responses.accepted_answer.response, ranked_responses.accepted_answer.ranking = accepted_answer
+        else:
+            ranked_responses.accepted_answer.response = None
+            ranked_responses.accepted_answer.ranking = 0
+        
         self.kobj_queue.push(bundle=Bundle.generate(
             rid=ranked_responses_rid,
             contents=ranked_responses.model_dump()
