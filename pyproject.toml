@@ -1,6 +1,6 @@
 [project]
 name = "koi-net-ask-response-ranker-node"
-version = "0.2.0"
+version = "0.2.1"
 description = "Response ranker KOI-net node for ask network application."
 authors = [
     {name = "Luke Miller", email = "luke@metagov.org"}
@@ -8,7 +8,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "koi-net~=2.0",
+    "koi-net>=2.1.0b1",
     "rid-lib>=3.2.16",
     "slack-bolt",
 ]

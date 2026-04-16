@@ -127,7 +127,7 @@ class RankingHandler(KnowledgeHandler):
         
         if kobj.normalized_event_type == EventType.NEW:
             added = {(emoji, user) for emoji, users in response.reactions.items() for user in users}
-            removed = {}
+            removed = set()
             
             if not added:
                 return
