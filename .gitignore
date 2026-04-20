@@ -1,9 +1,14 @@
+# Python and environment
+__pycache__/
+build/
+dist/
+*.egg-info/
+*.py[cod]
 .venv
 .env
-.rid_cache
-*.ndjson
-*.json
-__pycache__
+
+# KOI-net generated files
 config.yaml
 priv_key.pem
-*.egg-info
+.rid_cache
+log.ndjson*

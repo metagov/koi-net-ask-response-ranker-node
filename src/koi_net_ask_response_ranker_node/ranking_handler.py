@@ -51,30 +51,37 @@ class RankingHandler(KnowledgeHandler):
     
     def send_vote_feedback(self, reaction_delta_set, response):
         for emoji, user, added in reaction_delta_set:
+            msg = None
             if emoji.startswith(THUMBS_UP):
                 if added:
                     msg = f"Your :{THUMBS_UP}: vote has been counted!"
                 else:
                     msg = f"Removed :{THUMBS_UP}: vote"
+                    
             elif emoji == SPORTS_MEDAL:
                 if self.user_is_staff(user):
                     if added:
                         msg = f"Your :{SPORTS_MEDAL}: vote has been counted!"
                     else:
                         msg = f"Removed :{SPORTS_MEDAL}: vote"
-                else:
+                elif added:
                     msg = f"Sorry, only staff members can vote :{SPORTS_MEDAL}:"
+            
             elif emoji == CHECK_MARK:
                 if self.user_is_thread_author(user, response):
                     if added:
                         msg = f"Your :{CHECK_MARK}: vote has been counted!"
                     else:
                         msg = f"Removed :{CHECK_MARK}: vote"
-                else:
+                elif added:
                     msg = f"Sorry, only the thread author can vote :{CHECK_MARK}:"
-            else:
+            
+            elif added:
+                msg = f"Only :{THUMBS_UP}:, :{SPORTS_MEDAL}:, and :{CHECK_MARK}: are valid reaction votes"
+            
+            if msg is None:
                 continue
-                
+            
             self.slack_app.client.chat_postEphemeral(
                 channel=response.thread.channel_id,
                 thread_ts=response.thread.ts,
