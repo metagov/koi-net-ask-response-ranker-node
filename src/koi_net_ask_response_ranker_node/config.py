@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from rid_lib.types import KoiNetNode, SlackUserGroup
+from rid_lib.types import KoiNetNode, SlackUser, SlackUserGroup
 from koi_net.config import (
     EnvConfig,
     FullNodeConfig, 
@@ -17,6 +17,7 @@ class SlackEnvConfig(EnvConfig):
 
 class CustomConfig(BaseModel):
     staff_user_group: SlackUserGroup | None = None
+    ignored_response_authors: list[SlackUser] = []
 
 class AskResponseRankerNodeConfig(FullNodeConfig):
     koi_net: KoiNetConfig = KoiNetConfig(

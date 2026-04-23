@@ -1,6 +1,6 @@
 [project]
 name = "koi-net-ask-response-ranker-node"
-version = "0.2.2"
+version = "0.2.3"
 description = "Response ranker KOI-net node for ask network application."
 authors = [
     {name = "Luke Miller", email = "luke@metagov.org"}

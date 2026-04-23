@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from rid_lib.ext import Bundle
 from koi_net.components.interfaces import KnowledgeHandler, HandlerType
@@ -23,6 +23,7 @@ class RankingHandler(KnowledgeHandler):
     config: AskResponseRankerNodeConfig
     kobj_queue: KobjQueue
     slack_app: App
+    bot_user: SlackUser = field(init=False, default="")
     
     handler_type = HandlerType.Network
     rid_types = (AskCoreResponse,)
@@ -56,14 +57,14 @@ class RankingHandler(KnowledgeHandler):
                 if added:
                     msg = f"Your :{THUMBS_UP}: vote has been counted!"
                 else:
-                    msg = f"Removed :{THUMBS_UP}: vote"
+                    msg = f"Successively removed your :{THUMBS_UP}: vote"
                     
             elif emoji == SPORTS_MEDAL:
                 if self.user_is_staff(user):
                     if added:
                         msg = f"Your :{SPORTS_MEDAL}: vote has been counted!"
                     else:
-                        msg = f"Removed :{SPORTS_MEDAL}: vote"
+                        msg = f"Successively removed your :{SPORTS_MEDAL}: vote"
                 elif added:
                     msg = f"Sorry, only staff members can vote :{SPORTS_MEDAL}:"
             
@@ -72,7 +73,7 @@ class RankingHandler(KnowledgeHandler):
                     if added:
                         msg = f"Your :{CHECK_MARK}: vote has been counted!"
                     else:
-                        msg = f"Removed :{CHECK_MARK}: vote"
+                        msg = f"Successively removed your :{CHECK_MARK}: vote"
                 elif added:
                     msg = f"Sorry, only the thread author can vote :{CHECK_MARK}:"
             
@@ -99,6 +100,9 @@ class RankingHandler(KnowledgeHandler):
                 response = curr_response_bundle.validate_contents(AskCoreResponseModel)
             else:
                 continue
+            
+            if response.author in self.config.response_ranking.ignored_response_authors:
+                continue
 
             if response.thread != thread:
                 continue
@@ -123,8 +127,23 @@ class RankingHandler(KnowledgeHandler):
             rankings[rid] = reaction_counts
         return rankings
     
+    def start(self):
+        resp = self.slack_app.client.auth_test()
+        self.bot_user = SlackUser(
+            team_id=resp["team_id"],
+            user_id=resp["user_id"]
+        )
+        
+        if self.bot_user not in self.config.response_ranking.ignored_response_authors:
+            self.config.response_ranking.ignored_response_authors.append(self.bot_user)
+            self.config.save_to_yaml()
+
     def handle(self, kobj: KnowledgeObject):
         response = kobj.bundle.validate_contents(AskCoreResponseModel)
+        
+        if response.author in self.config.response_ranking.ignored_response_authors:
+            self.log.info("Skipping response from ignored author")
+            return
         
         ranked_responses_rid = AskRankedResponses(
             team_id=response.thread.team_id,
